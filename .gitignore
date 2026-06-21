@@ -1,0 +1,39 @@
+# Node
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+
+# Flutter
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/**/*.g.dart
+mobile/**/*.freezed.dart
+
+# Keys & secrets
+*.jks
+*.keystore
+google-services.json
+GoogleService-Info.plist
+firebase_options.dart
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Test coverage
+coverage/
+lcov.info

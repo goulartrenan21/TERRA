@@ -1,0 +1,15 @@
+{
+  "name": "terra",
+  "private": true,
+  "workspaces": [
+    "api",
+    "shared"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=api",
+    "test:api": "npm run test --workspace=api",
+    "build:shared": "npm run build --workspace=shared",
+    "db:migrate": "npm run db:migrate --workspace=api",
+    "db:rollback": "npm run db:rollback --workspace=api"
+  }
+}

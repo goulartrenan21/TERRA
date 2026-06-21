@@ -1,0 +1,39 @@
+{
+  "name": "@terra/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc --build",
+    "start": "node dist/server.js",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "db:migrate": "node-pg-migrate up -m migrations",
+    "db:rollback": "node-pg-migrate down -m migrations"
+  },
+  "dependencies": {
+    "@terra/shared": "*",
+    "fastify": "^4.28.0",
+    "@fastify/jwt": "^9.0.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/websocket": "^10.0.0",
+    "fastify-plugin": "^4.5.1",
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.1",
+    "pg": "^8.12.0",
+    "node-pg-migrate": "^7.7.0",
+    "@supabase/supabase-js": "^2.44.0",
+    "firebase-admin": "^12.3.0",
+    "zod": "^3.23.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.16.0",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.0",
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "@testcontainers/postgresql": "^10.10.0"
+  }
+}
