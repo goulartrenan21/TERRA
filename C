@@ -1,0 +1,8 @@
+import 'package:flutter/material.dart';
+class /Users/rgoulart/Desktop/TERRA App/terra/mobile/lib/features/settings/screens/settings_screen.dart:SettingsScreen extends StatelessWidget {
+  const /Users/rgoulart/Desktop/TERRA App/terra/mobile/lib/features/settings/screens/settings_screen.dart:SettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(child: Text('/Users/rgoulart/Desktop/TERRA App/terra/mobile/lib/features/settings/screens/settings_screen.dart:SettingsScreen — Em breve')),
+  );
+}
