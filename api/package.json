@@ -4,10 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/workers/capture.worker.ts",
     "build": "tsc --build",
     "start": "node dist/server.js",
+    "start:worker": "node dist/workers/capture.worker.js",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
+    "test:unit": "vitest run src/tests/capture.test.ts",
     "db:migrate": "node-pg-migrate up -m migrations",
     "db:rollback": "node-pg-migrate down -m migrations"
   },
