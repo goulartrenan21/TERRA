@@ -24,8 +24,9 @@ const postActivityBody = z.object({
 })
 
 const activitiesRoute: FastifyPluginAsync = async (app) => {
-  const captureQueue = new Queue<CaptureJobData>('capture', {
-    connection: app.redis,
+  // Use URL-based connection to avoid ioredis version conflict with BullMQ's bundled copy
+  const captureQueue = new Queue<CaptureJobData, void, string>('capture', {
+    connection: { url: process.env.REDIS_URL! },
     defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
   })
 

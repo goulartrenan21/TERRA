@@ -1,20 +1,18 @@
 import 'dotenv/config'
 import { Worker, type Job } from 'bullmq'
-import { Redis } from 'ioredis'
 import { CaptureService } from '../services/capture.service'
 import { db } from '../lib/db'
-import type { CaptureJobData } from '@terra/shared'
+import type { CaptureJobData, CaptureResult } from '@terra/shared'
 
-const redis = new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null })
-
-const worker = new Worker<CaptureJobData>(
+// Use URL-based connection to avoid ioredis version conflict with BullMQ's bundled copy
+const worker = new Worker<CaptureJobData, CaptureResult, string>(
   'capture',
   async (job: Job<CaptureJobData>) => {
     const service = new CaptureService()
     return service.process(job.data)
   },
   {
-    connection: redis,
+    connection: { url: process.env.REDIS_URL!, maxRetriesPerRequest: null },
     concurrency: 10,
     limiter: { max: 50, duration: 1000 },
   },
@@ -43,6 +41,5 @@ console.log('[capture] worker started')
 
 process.on('SIGTERM', async () => {
   await worker.close()
-  await redis.quit()
   process.exit(0)
 })

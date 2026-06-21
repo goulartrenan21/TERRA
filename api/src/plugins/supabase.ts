@@ -1,9 +1,12 @@
 import fp from 'fastify-plugin'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = SupabaseClient<any, any, any>
 
 declare module 'fastify' {
   interface FastifyInstance {
-    supabase: ReturnType<typeof createClient>
+    supabase: AnySupabase
   }
 }
 
@@ -14,5 +17,5 @@ export default fp(async (app) => {
     { auth: { persistSession: false } },
   )
 
-  app.decorate('supabase', supabase)
+  app.decorate('supabase', supabase as AnySupabase)
 })

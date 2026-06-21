@@ -2,6 +2,7 @@ import { db } from '../lib/db'
 import { cleanPolyline, type Point } from '../lib/geo/polyline'
 import { detectLoops, isValidLoop } from '../lib/geo/loops'
 import { notifyUser } from '../lib/ws'
+import { sendTerritoryStolen } from './push.service'
 import type { CaptureJobData, CaptureResult, CapturedArea, StolenArea, GeoPolygon } from '@terra/shared'
 
 // ─── XP ──────────────────────────────────────────────────────────────────────
@@ -74,20 +75,24 @@ export class CaptureService {
     )
 
     // H — Notify owners whose territory was stolen
-    for (const stolen of stolenFrom) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, payload)
-         VALUES ($1, 'territory_stolen', $2)`,
-        [
-          stolen.fromUserId,
-          JSON.stringify({
-            territoryId:   stolen.territoryId,
-            byUserId:      userId,
-            byDisplayName: await this._getDisplayName(userId),
-            areaKm2:       stolen.areaKm2,
-          }),
-        ],
-      )
+    if (stolenFrom.length > 0) {
+      const attackerName = await this._getDisplayName(userId)
+      for (const stolen of stolenFrom) {
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload)
+           VALUES ($1, 'territory_stolen', $2)`,
+          [
+            stolen.fromUserId,
+            JSON.stringify({
+              territoryId:   stolen.territoryId,
+              byUserId:      userId,
+              byDisplayName: attackerName,
+              areaKm2:       stolen.areaKm2,
+            }),
+          ],
+        )
+        sendTerritoryStolen(stolen.fromUserId, attackerName, stolen.areaKm2).catch(console.error)
+      }
     }
 
     const result: CaptureResult = {
