@@ -1,6 +1,9 @@
 {
   "name": "terra",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "workspaces": [
     "api",
     "shared"
