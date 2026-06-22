@@ -8,6 +8,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../providers/run_session_provider.dart';
 import '../../map/providers/map_provider.dart';
 import '../../map/widgets/territory_layer.dart';
+import '../../powers/providers/powers_provider.dart';
 
 class RunActiveScreen extends ConsumerStatefulWidget {
   const RunActiveScreen({super.key});
@@ -134,7 +135,15 @@ class _RunActiveScreenState extends ConsumerState<RunActiveScreen> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
             left: 16, right: 16,
-            child: _TopHud(run: run),
+            child: Column(
+              children: [
+                _TopHud(run: run),
+                if (run.armedPowers.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _ArmedPowersBar(kinds: run.armedPowers),
+                ],
+              ],
+            ),
           ),
 
           // ── Bottom controls ────────────────────────────────────────────────
@@ -284,6 +293,40 @@ class _LoopFlashState extends State<_LoopFlash>
         opacity: (1 - _ctrl.value) * 0.4,
         child: Container(color: AppColors.coral),
       ),
+    ),
+  );
+}
+
+class _ArmedPowersBar extends StatelessWidget {
+  final List<PowerKind> kinds;
+  const _ArmedPowersBar({required this.kinds});
+
+  static String _emoji(PowerKind k) => switch (k) {
+    PowerKind.shield    => '🛡️',
+    PowerKind.reclaim   => '⚡',
+    PowerKind.sprint    => '🚀',
+    PowerKind.roots     => '🌱',
+    PowerKind.freshness => '❄️',
+    PowerKind.revenge   => '🔥',
+  };
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+    decoration: BoxDecoration(
+      color: AppColors.coral.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: AppColors.coral.withValues(alpha: 0.5)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('PODERES ATIVOS  ', style: TextStyle(color: AppColors.coral, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+        ...kinds.map((k) => Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Text(_emoji(k), style: const TextStyle(fontSize: 16)),
+        )),
+      ],
     ),
   );
 }

@@ -12,6 +12,8 @@ import streakRoute from './routes/streak'
 import feedRoute from './routes/feed'
 import notificationsRoute from './routes/notifications'
 import devicesRoute from './routes/devices'
+import powersRoute from './routes/powers'
+import challengesRoute from './routes/challenges'
 
 export function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? true })
@@ -30,6 +32,8 @@ export function buildApp(opts: { logger?: boolean } = {}) {
   app.register(feedRoute,          { prefix: '/feed' })
   app.register(notificationsRoute, { prefix: '/notifications' })
   app.register(devicesRoute,       { prefix: '/devices' })
+  app.register(powersRoute,        { prefix: '/powers' })
+  app.register(challengesRoute,    { prefix: '/challenges' })
 
   app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }))
 

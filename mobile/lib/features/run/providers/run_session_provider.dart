@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/privacy_zones.dart' as pz;
+import '../../powers/providers/powers_provider.dart';
 
 enum RunStatus { idle, running, paused, uploading, done, error }
 
@@ -16,6 +17,7 @@ class RunSessionState {
   final String? uploadedActivityId;
   final String? errorMessage;
   final DateTime? startedAt;
+  final List<PowerKind> armedPowers;
 
   const RunSessionState({
     this.status          = RunStatus.idle,
@@ -26,6 +28,7 @@ class RunSessionState {
     this.uploadedActivityId,
     this.errorMessage,
     this.startedAt,
+    this.armedPowers     = const [],
   });
 
   RunSessionState copyWith({
@@ -37,6 +40,7 @@ class RunSessionState {
     String? uploadedActivityId,
     String? errorMessage,
     DateTime? startedAt,
+    List<PowerKind>? armedPowers,
   }) => RunSessionState(
     status:              status ?? this.status,
     points:              points ?? this.points,
@@ -46,6 +50,7 @@ class RunSessionState {
     uploadedActivityId:  uploadedActivityId ?? this.uploadedActivityId,
     errorMessage:        errorMessage ?? this.errorMessage,
     startedAt:           startedAt ?? this.startedAt,
+    armedPowers:         armedPowers ?? this.armedPowers,
   );
 
   double get distanceKm => distanceM / 1000;
@@ -63,11 +68,12 @@ class RunSessionState {
 
 final runSessionProvider =
     StateNotifierProvider<RunSessionNotifier, RunSessionState>(
-  (ref) => RunSessionNotifier(ref.read(apiClientProvider)),
+  (ref) => RunSessionNotifier(ref.read(apiClientProvider), ref),
 );
 
 class RunSessionNotifier extends StateNotifier<RunSessionState> {
   final ApiClient _api;
+  final Ref _ref;
 
   StreamSubscription<Position>? _gpsSub;
   Timer? _clockTimer;
@@ -76,7 +82,7 @@ class RunSessionNotifier extends StateNotifier<RunSessionState> {
   static const _minSpeedForPause = 0.5; // m/s
   static const _pauseAfterSeconds = 60;
 
-  RunSessionNotifier(this._api) : super(const RunSessionState());
+  RunSessionNotifier(this._api, this._ref) : super(const RunSessionState());
 
   // ── Start ──────────────────────────────────────────────────────────────────
 
@@ -91,9 +97,17 @@ class RunSessionNotifier extends StateNotifier<RunSessionState> {
       return false;
     }
 
+    // Snapshot armed powers at run start
+    final powersState = _ref.read(powersProvider);
+    final armed = powersState.powers
+        .where((p) => p.armed)
+        .map((p) => p.kind)
+        .toList();
+
     state = RunSessionState(
-      status:    RunStatus.running,
-      startedAt: DateTime.now(),
+      status:      RunStatus.running,
+      startedAt:   DateTime.now(),
+      armedPowers: armed,
     );
 
     _startClock();
@@ -141,14 +155,15 @@ class RunSessionNotifier extends StateNotifier<RunSessionState> {
       final coords    = sanitized.map((p) => [p.longitude, p.latitude]).toList();
 
       final result = await _api.postActivity(
-        polyline:  {'type': 'LineString', 'coordinates': coords},
-        metrics:   {
+        polyline:   {'type': 'LineString', 'coordinates': coords},
+        metrics:    {
           'distanceM':       state.distanceM,
           'durationS':       state.elapsedSeconds,
           'avgPaceSecPerKm': state.avgPaceSecPerKm,
         },
-        startedAt: state.startedAt!.toUtc().toIso8601String(),
-        endedAt:   DateTime.now().toUtc().toIso8601String(),
+        startedAt:  state.startedAt!.toUtc().toIso8601String(),
+        endedAt:    DateTime.now().toUtc().toIso8601String(),
+        powersUsed: state.armedPowers.map((p) => p.name).toList(),
       );
 
       state = state.copyWith(

@@ -12,7 +12,7 @@ function initFirebase() {
   }
 
   initializeApp({
-    credential: cert(JSON.parse(Buffer.from(serviceAccount, 'base64').toString())),
+    credential: cert(JSON.parse(serviceAccount)),
   })
 }
 

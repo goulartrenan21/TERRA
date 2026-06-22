@@ -8,7 +8,9 @@
   "scripts": {
     "dev:api": "npm run dev --workspace=api",
     "test:api": "npm run test --workspace=api",
-    "build:shared": "npm run build --workspace=shared",
+    "build": "npm run build --workspace=shared && npm run build --workspace=api",
+    "start": "node api/dist/server.js",
+    "start:worker": "node api/dist/workers/capture.worker.js",
     "db:migrate": "npm run db:migrate --workspace=api",
     "db:rollback": "npm run db:rollback --workspace=api"
   }

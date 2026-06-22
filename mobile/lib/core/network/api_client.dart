@@ -51,12 +51,14 @@ class ApiClient {
     required Map<String, dynamic> metrics,
     required String startedAt,
     required String endedAt,
+    List<String> powersUsed = const [],
   }) async {
     final res = await _dio.post<Map<String, dynamic>>('/activities', data: {
-      'polyline': polyline,
-      'metrics': metrics,
-      'startedAt': startedAt,
-      'endedAt': endedAt,
+      'polyline':   polyline,
+      'metrics':    metrics,
+      'startedAt':  startedAt,
+      'endedAt':    endedAt,
+      if (powersUsed.isNotEmpty) 'powersUsed': powersUsed,
     });
     return res.data!;
   }
@@ -125,5 +127,17 @@ class ApiClient {
 
   Future<void> registerDevice(String token, String platform) async {
     await _dio.post('/devices', data: {'token': token, 'platform': platform});
+  }
+
+  // ── Powers ─────────────────────────────────────────────────────────────────
+
+  Future<List<dynamic>> getPowers() async {
+    final res = await _dio.get<List<dynamic>>('/powers');
+    return res.data!;
+  }
+
+  Future<Map<String, dynamic>> activatePower(String kind) async {
+    final res = await _dio.post<Map<String, dynamic>>('/powers/$kind/activate');
+    return res.data!;
   }
 }

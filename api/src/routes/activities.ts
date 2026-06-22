@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { Queue } from 'bullmq'
 import { z } from 'zod'
 import { db } from '../lib/db'
-import type { CaptureJobData, PostActivityRequest } from '@terra/shared'
+import type { CaptureJobData, PostActivityRequest, PowerKind } from '@terra/shared'
 
 const polylineSchema = z.object({
   type: z.literal('LineString'),
@@ -16,11 +16,13 @@ const metricsSchema = z.object({
   elevationM:       z.number().optional(),
 })
 
+const powerKinds = ['shield', 'reclaim', 'sprint', 'roots', 'freshness', 'revenge'] as const
 const postActivityBody = z.object({
-  polyline:   polylineSchema,
-  metrics:    metricsSchema,
-  startedAt:  z.string().datetime(),
-  endedAt:    z.string().datetime(),
+  polyline:    polylineSchema,
+  metrics:     metricsSchema,
+  startedAt:   z.string().datetime(),
+  endedAt:     z.string().datetime(),
+  powersUsed:  z.array(z.enum(powerKinds)).optional(),
 })
 
 const activitiesRoute: FastifyPluginAsync = async (app) => {
@@ -37,7 +39,7 @@ const activitiesRoute: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: 'Invalid request', details: body.error.flatten() })
     }
 
-    const { polyline, metrics, startedAt, endedAt } = body.data
+    const { polyline, metrics, startedAt, endedAt, powersUsed } = body.data
     const userId = (req.user as { id: string }).id
 
     const { rows } = await db.query<{ id: string }>(
@@ -57,7 +59,12 @@ const activitiesRoute: FastifyPluginAsync = async (app) => {
     )
 
     const activityId = rows[0].id
-    const job = await captureQueue.add('capture', { activityId, userId, polyline })
+    const job = await captureQueue.add('capture', {
+      activityId,
+      userId,
+      polyline,
+      powersArmed: (powersUsed ?? []) as PowerKind[],
+    })
 
     reply.code(202).send({ activityId, status: 'processing', jobId: job.id })
   })

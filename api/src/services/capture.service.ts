@@ -3,7 +3,7 @@ import { cleanPolyline, type Point } from '../lib/geo/polyline'
 import { detectLoops, isValidLoop } from '../lib/geo/loops'
 import { notifyUser } from '../lib/ws'
 import { sendTerritoryStolen } from './push.service'
-import type { CaptureJobData, CaptureResult, CapturedArea, StolenArea, GeoPolygon } from '@terra/shared'
+import type { CaptureJobData, CaptureResult, CapturedArea, StolenArea, GeoPolygon, PowerKind, PowerApplied } from '@terra/shared'
 
 // ─── XP ──────────────────────────────────────────────────────────────────────
 
@@ -29,8 +29,9 @@ const MIN_LOOP_AREA    = 0.01  // km²
 
 export class CaptureService {
   async process(job: CaptureJobData): Promise<CaptureResult> {
-    const { activityId, userId, polyline } = job
+    const { activityId, userId, polyline, powersArmed = [] } = job
     const rawPoints = polyline.coordinates as Point[]
+    const powersApplied: PowerApplied[] = []
 
     // A — Clean polyline
     const points = cleanPolyline(rawPoints)
@@ -43,38 +44,61 @@ export class CaptureService {
     const stolenFrom:    StolenArea[]   = []
     let totalXpGained = 0
 
-    // C — Process each valid loop
+    const hasSprint  = powersArmed.includes('sprint')
+    const hasReclaim = powersArmed.includes('reclaim')
+
+    // C — Consume attacker's armed charges for active powers
+    if (powersArmed.length > 0) {
+      await this._consumeArmedPowers(userId, powersArmed)
+    }
+
+    // D — Check passive revenge: did any of the victims steal from attacker in last 48h?
+    const revengeTargets = await this._getRevengeTargets(userId)
+
+    // E — Process each valid loop
     for (const loop of validLoops) {
       const geojsonPolygon = JSON.stringify({
         type: 'Polygon',
         coordinates: [loop.polygon],
       })
 
-      const result = await this._processLoop(userId, activityId, geojsonPolygon)
+      const result = await this._processLoop(
+        userId, activityId, geojsonPolygon,
+        { hasSprint, hasReclaim, revengeTargets, powersApplied },
+      )
       capturedAreas.push(...result.captured)
       stolenFrom.push(...result.stolen)
       totalXpGained += result.xpGained
     }
 
-    // D — Update user XP + level
+    // F — Update user XP + level
     const { newLevel, leveledUp } = await this._applyXP(userId, totalXpGained)
 
-    // E — Update ranking
+    // G — Update ranking
     if (capturedAreas.length > 0 || stolenFrom.length > 0) {
       const totalArea = capturedAreas.reduce((s, a) => s + a.areaKm2, 0)
       await this._updateRanking(userId, totalArea, capturedAreas.length)
     }
 
-    // F — Update streak
+    // H — Update streak
     const streakUpdated = await this._checkinStreak(userId)
 
-    // G — Mark activity done
+    // I — Mark activity scored
     await db.query(
-      `UPDATE activities SET status = 'done' WHERE id = $1`,
+      `UPDATE activities SET status = 'scored' WHERE id = $1`,
       [activityId],
     )
 
-    // H — Notify owners whose territory was stolen
+    // J — Log power uses
+    for (const applied of powersApplied) {
+      await db.query(
+        `INSERT INTO power_uses (user_id, kind, activity_id, target_user_id, outcome, area_km2)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [userId, applied.kind, activityId, applied.targetUserId ?? null, applied.outcome, applied.areaKm2 ?? null],
+      )
+    }
+
+    // K — Notify owners whose territory was stolen
     if (stolenFrom.length > 0) {
       const attackerName = await this._getDisplayName(userId)
       for (const stolen of stolenFrom) {
@@ -99,13 +123,14 @@ export class CaptureService {
       activityId,
       capturedAreas,
       stolenFrom,
-      xpGained:       totalXpGained,
+      xpGained:     totalXpGained,
       newLevel,
       leveledUp,
       streakUpdated,
+      powersApplied,
     }
 
-    // I — WebSocket notification
+    // L — WebSocket notification
     notifyUser(userId, { type: 'capture_done', payload: result })
 
     return result
@@ -117,6 +142,12 @@ export class CaptureService {
     userId: string,
     activityId: string,
     geojsonPolygon: string,
+    powers: {
+      hasSprint: boolean
+      hasReclaim: boolean
+      revengeTargets: Set<string>
+      powersApplied: PowerApplied[]
+    },
   ): Promise<{ captured: CapturedArea[]; stolen: StolenArea[]; xpGained: number }> {
     const captured: CapturedArea[] = []
     const stolen:   StolenArea[]   = []
@@ -171,6 +202,18 @@ export class CaptureService {
             [territory.id, activityId, userId, intersectedArea],
           )
         } else if (territory.owner_id !== null) {
+          // Check if victim has an armed shield
+          const shieldBlocked = await this._checkAndConsumeShield(territory.owner_id, userId, activityId)
+          if (shieldBlocked) {
+            powers.powersApplied.push({
+              kind: 'shield',
+              outcome: 'shield_blocked',
+              targetUserId: territory.owner_id,
+              areaKm2: intersectedArea,
+            })
+            continue
+          }
+
           // Steal from enemy — compute what remains after intersection
           const { rows: diffRows } = await client.query<{ diff_area: number; diff_geom: string | null }>(
             `SELECT
@@ -206,14 +249,31 @@ export class CaptureService {
             [territory.id, activityId, territory.owner_id, userId, intersectedArea],
           )
 
+          // Revenge bonus: +50% area if victim stole from attacker in last 48h
+          let effectiveArea = intersectedArea
+          if (powers.revengeTargets.has(territory.owner_id)) {
+            effectiveArea = intersectedArea * 1.5
+            powers.powersApplied.push({
+              kind: 'revenge',
+              outcome: 'revenge_bonus',
+              targetUserId: territory.owner_id,
+              areaKm2: effectiveArea - intersectedArea,
+            })
+          }
+
+          // Sprint: 2x captured area
+          if (powers.hasSprint) {
+            effectiveArea = effectiveArea * 2
+          }
+
           stolen.push({
             territoryId:     territory.id,
             fromUserId:      territory.owner_id,
             fromDisplayName: '', // filled below after commit
-            areaKm2:         intersectedArea,
+            areaKm2:         effectiveArea,
           })
 
-          xpGained += calculateXP(intersectedArea, true)
+          xpGained += calculateXP(effectiveArea, true)
         }
       }
 
@@ -247,23 +307,34 @@ export class CaptureService {
       const neutralGeom = neutralRows[0].neutral_geom
 
       if (neutralArea >= 0.001 && neutralGeom) {
+        // Sprint: 2x area on neutral captures too
+        const effectiveNeutralArea = powers.hasSprint ? neutralArea * 2 : neutralArea
+
         const { rows: insertedRows } = await client.query<{ id: string }>(
           `INSERT INTO territories (owner_id, geom, area_km2, freshness)
            VALUES ($1, ST_GeomFromGeoJSON($2), $3, 1.0)
            RETURNING id`,
-          [userId, neutralGeom, neutralArea],
+          [userId, neutralGeom, effectiveNeutralArea],
         )
         await client.query(
           `INSERT INTO territory_events (territory_id, activity_id, event_type, new_owner_id, area_km2)
            VALUES ($1, $2, 'captured', $3, $4)`,
-          [insertedRows[0].id, activityId, userId, neutralArea],
+          [insertedRows[0].id, activityId, userId, effectiveNeutralArea],
         )
         captured.push({
           territoryId: insertedRows[0].id,
-          areaKm2:     neutralArea,
+          areaKm2:     effectiveNeutralArea,
           geom:        JSON.parse(neutralGeom) as GeoPolygon,
         })
-        xpGained += calculateXP(neutralArea, false)
+        xpGained += calculateXP(effectiveNeutralArea, false)
+
+        if (powers.hasSprint && effectiveNeutralArea > neutralArea) {
+          powers.powersApplied.push({
+            kind: 'sprint',
+            outcome: 'sprint_doubled',
+            areaKm2: effectiveNeutralArea - neutralArea,
+          })
+        }
       }
 
       await client.query('COMMIT')
@@ -309,6 +380,23 @@ export class CaptureService {
         `INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'level_up', $2)`,
         [userId, JSON.stringify({ newLevel, xp: rows[0].xp })],
       )
+
+      // Grant Reconquista at level 3
+      if (newLevel >= 3 && rows[0].level < 3) {
+        await db.query(
+          `INSERT INTO user_powers (user_id, kind, charges, max_charges, recharged_at)
+           VALUES ($1, 'reclaim', 1, 1, now())
+           ON CONFLICT (user_id, kind) DO UPDATE
+             SET charges = LEAST(user_powers.max_charges, user_powers.charges + 1),
+                 recharged_at = now()`,
+          [userId],
+        )
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload)
+           VALUES ($1, 'power_earned', $2)`,
+          [userId, JSON.stringify({ kind: 'reclaim', level: newLevel })],
+        )
+      }
     }
 
     return { newLevel, leveledUp }
@@ -317,11 +405,30 @@ export class CaptureService {
   // ─── Streak checkin ────────────────────────────────────────────────────────
 
   private async _checkinStreak(userId: string): Promise<boolean> {
-    const { rows } = await db.query<{ streak_days: number }>(
-      `SELECT streak_days FROM check_streak($1)`,
+    const { rows } = await db.query<{ streak_days: number; freeze_used: boolean }>(
+      `SELECT streak_days, freeze_used FROM check_streak($1)`,
       [userId],
     )
-    return rows[0].streak_days > 0
+    const { streak_days } = rows[0]
+
+    // Grant shield at every 7-day milestone (7, 14, 21 …)
+    if (streak_days > 0 && streak_days % 7 === 0) {
+      await db.query(
+        `INSERT INTO user_powers (user_id, kind, charges, max_charges, recharged_at)
+         VALUES ($1, 'shield', 1, 1, now())
+         ON CONFLICT (user_id, kind) DO UPDATE
+           SET charges = LEAST(user_powers.max_charges, user_powers.charges + 1),
+               recharged_at = now()`,
+        [userId],
+      )
+      await db.query(
+        `INSERT INTO notifications (user_id, type, payload)
+         VALUES ($1, 'power_earned', $2)`,
+        [userId, JSON.stringify({ kind: 'shield', streak_days })],
+      )
+    }
+
+    return streak_days > 0
   }
 
   // ─── Ranking upsert ────────────────────────────────────────────────────────
@@ -337,6 +444,59 @@ export class CaptureService {
       `SELECT upsert_ranking($1, $2, $3, $4)`,
       [userId, rows[0].neighborhood_id, areaKm2, territoryDelta],
     )
+  }
+
+  // ─── Powers helpers ───────────────────────────────────────────────────────
+
+  private async _consumeArmedPowers(userId: string, powers: PowerKind[]): Promise<void> {
+    for (const kind of powers) {
+      await db.query(
+        `UPDATE user_powers
+           SET charges = charges - 1, armed = false, recharged_at = now()
+           WHERE user_id = $1 AND kind = $2 AND armed = true AND charges > 0`,
+        [userId, kind],
+      )
+    }
+  }
+
+  private async _checkAndConsumeShield(
+    victimId: string,
+    attackerId: string,
+    activityId: string,
+  ): Promise<boolean> {
+    const { rows } = await db.query<{ charges: number }>(
+      `UPDATE user_powers
+         SET charges = charges - 1, armed = false, recharged_at = now()
+         WHERE user_id = $1 AND kind = 'shield' AND armed = true AND charges > 0
+         RETURNING charges`,
+      [victimId],
+    )
+    if (rows.length === 0) return false
+
+    // Notify the victim that their shield blocked an attack
+    await db.query(
+      `INSERT INTO notifications (user_id, type, payload)
+       VALUES ($1, 'shield_blocked', $2)`,
+      [victimId, JSON.stringify({ byUserId: attackerId, activityId })],
+    )
+    notifyUser(victimId, {
+      type: 'territory_stolen',
+      payload: { territoryId: '', byUserId: attackerId, byDisplayName: '', areaKm2: 0 },
+    })
+
+    return true
+  }
+
+  private async _getRevengeTargets(userId: string): Promise<Set<string>> {
+    const { rows } = await db.query<{ attacker_id: string }>(
+      `SELECT DISTINCT attacker_id
+         FROM territory_events
+         WHERE new_owner_id = $1
+           AND event_type = 'stolen'
+           AND created_at > now() - interval '48 hours'`,
+      [userId],
+    )
+    return new Set(rows.map((r) => r.attacker_id))
   }
 
   // ─── Helper ───────────────────────────────────────────────────────────────

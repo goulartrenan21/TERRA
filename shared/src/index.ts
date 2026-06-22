@@ -172,6 +172,9 @@ export type NotificationType =
   | 'kudos'
   | 'level_up'
   | 'capture_done'
+  | 'shield_blocked'
+  | 'power_earned'
+  | 'revenge_ready'
 
 export interface Notification {
   id: string
@@ -188,6 +191,7 @@ export interface CaptureJobData {
   activityId: string
   userId: string
   polyline: GeoLineString
+  powersArmed?: PowerKind[]
 }
 
 export interface CaptureResult {
@@ -198,6 +202,7 @@ export interface CaptureResult {
   newLevel: number
   leveledUp: boolean
   streakUpdated: boolean
+  powersApplied: PowerApplied[]
 }
 
 export interface CapturedArea {
@@ -220,6 +225,28 @@ export type WsMessage =
   | { type: 'territory_stolen';  payload: { territoryId: string; byUserId: string; byDisplayName: string; areaKm2: number } }
   | { type: 'streak_warning';    payload: { streakDays: number; hoursLeft: number } }
   | { type: 'kudos';             payload: { fromUserId: string; fromDisplayName: string; activityId: string } }
+
+// ─── Powers ──────────────────────────────────────────────────────────────────
+
+export type PowerKind = 'shield' | 'reclaim' | 'sprint' | 'roots' | 'freshness' | 'revenge'
+export type PowerFamily = 'constancy' | 'action'
+
+export interface UserPower {
+  kind: PowerKind
+  family: PowerFamily
+  charges: number
+  maxCharges: number
+  armed: boolean
+  passive: boolean
+  rechargesAt: string | null // ISO 8601
+}
+
+export interface PowerApplied {
+  kind: PowerKind
+  outcome: string  // 'shield_blocked' | 'sprint_doubled' | 'revenge_bonus' | 'reclaim_success'
+  areaKm2?: number
+  targetUserId?: string
+}
 
 // ─── Device (FCM/APNs) ───────────────────────────────────────────────────────
 

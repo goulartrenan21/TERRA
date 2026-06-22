@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,8 +7,11 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/network/ws_client.dart';
 import '../providers/map_provider.dart';
 import '../widgets/territory_layer.dart';
+import '../../powers/screens/powers_drawer.dart';
+import '../../powers/widgets/shield_blocked_overlay.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -20,11 +24,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final _mapController = MapController();
   LatLng? _userPosition;
   bool _followUser = true;
+  bool _showShieldBlocked = false;
+  String _shieldAttackerName = '';
+
+  StreamSubscription<Map<String, dynamic>>? _shieldSub;
 
   @override
   void initState() {
     super.initState();
     _startLocationTracking();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _shieldSub ??= ref.read(wsClientProvider).messagesOfType('shield_blocked').listen((msg) {
+      final attackerName = (msg['payload'] as Map<String, dynamic>?)?['attackerName'] as String? ?? 'Alguém';
+      if (mounted) {
+        setState(() {
+          _showShieldBlocked = true;
+          _shieldAttackerName = attackerName;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _shieldSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _startLocationTracking() async {
@@ -106,6 +134,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: _MiniRanking(),
           ),
 
+          // ── Powers button ────────────────────────────────────────────────────
+          Positioned(
+            bottom: 160,
+            right: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'powers',
+              backgroundColor: AppColors.cardDark,
+              onPressed: () => showPowersDrawer(context),
+              child: const Text('⚡', style: TextStyle(fontSize: 20)),
+            ),
+          ),
+
           // ── Recenter button ─────────────────────────────────────────────────
           if (!_followUser)
             Positioned(
@@ -132,6 +172,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 child: SizedBox(
                   width: 20, height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.coral),
+                ),
+              ),
+            ),
+
+          // ── Shield blocked overlay ───────────────────────────────────────────
+          if (_showShieldBlocked)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: ShieldBlockedOverlay(
+                  attackerName: _shieldAttackerName,
+                  onDismiss: () => setState(() => _showShieldBlocked = false),
                 ),
               ),
             ),
